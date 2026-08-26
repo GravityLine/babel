@@ -1,5 +1,5 @@
 // Babel service worker — cache v1
-const CACHE = 'babel-v1';
+const CACHE = 'babel-v2';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {

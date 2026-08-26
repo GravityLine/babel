@@ -471,12 +471,31 @@
 
   // ---------- speech recognition ----------
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec = null, holding = false, finals = [], interim = '', activeLang = EN, liveEl = null, stopTimer = null, activeBtn = null;
+  var rec = null, holding = false, committed = '', sessionText = '', activeLang = EN, liveEl = null, stopTimer = null, activeBtn = null;
 
+  // Android often reports the whole utterance again with every update ("what", "what how", "what how can").
+  // Desktop reports true segments. Merge both styles: replace when the new piece extends what we have, append otherwise.
+  function norm(s) { return s.replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function mergeResults(results) {
+    var joiner = activeLang === ZH ? '' : ' ';
+    var text = '';
+    for (var i = 0; i < results.length; i++) {
+      var t = (results[i][0] && results[i][0].transcript || '').trim();
+      if (!t) continue;
+      var a = norm(text), b = norm(t);
+      if (!a || b.indexOf(a) === 0) text = t;            // cumulative update: replace
+      else if (a.indexOf(b) === 0 || a.slice(-b.length) === b) continue; // already have it
+      else text = text + joiner + t;                      // new segment: append
+    }
+    return text;
+  }
+  function currentText() {
+    var joiner = activeLang === ZH ? '' : ' ';
+    return (committed + (committed && sessionText ? joiner : '') + sessionText).trim();
+  }
   function updateLive() {
     if (!liveEl) return;
-    var joiner = activeLang === ZH ? '' : ' ';
-    liveEl.querySelector('.orig').textContent = (finals.join(joiner) + joiner + interim).trim();
+    liveEl.querySelector('.orig').textContent = currentText();
     scrollDown();
   }
   function startListening(lang, btn) {
@@ -485,7 +504,7 @@
     if (!get(K.key, '')) { openSettings(); return; }
     unlockSpeech();
     if (window.speechSynthesis) speechSynthesis.cancel();
-    holding = true; finals = []; interim = ''; activeLang = lang; activeBtn = btn;
+    holding = true; committed = ''; sessionText = ''; activeLang = lang; activeBtn = btn;
     btn.classList.add('hold');
     emptyEl.style.display = 'none';
     liveEl = document.createElement('article'); liveEl.className = 'entry live';
@@ -498,11 +517,7 @@
     rec = new SR();
     rec.lang = activeLang; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
     rec.onresult = function (ev) {
-      interim = '';
-      for (var i = ev.resultIndex; i < ev.results.length; i++) {
-        var r = ev.results[i];
-        if (r.isFinal) finals.push(r[0].transcript); else interim += r[0].transcript;
-      }
+      sessionText = mergeResults(ev.results);
       updateLive();
     };
     rec.onerror = function (ev) {
@@ -511,8 +526,10 @@
       if (ev.error === 'network') { holding = false; finish('Listening needs a connection.'); return; }
     };
     rec.onend = function () {
-      if (holding) { try { startRec(); } catch (e) { holding = false; finish(); } }
-      else finish();
+      if (holding) {
+        committed = currentText(); sessionText = '';
+        try { startRec(); } catch (e) { holding = false; finish(); }
+      } else finish();
     };
     rec.start();
   }
@@ -527,8 +544,7 @@
     if (!liveEl) return;
     if (rec) { rec.onend = null; rec.onresult = null; rec.onerror = null; try { rec.abort(); } catch (e) {} rec = null; }
     if (activeBtn) activeBtn.classList.remove('hold');
-    var joiner = activeLang === ZH ? '' : ' ';
-    var text = (finals.join(joiner) + joiner + interim).trim();
+    var text = currentText();
     liveEl.remove(); liveEl = null;
     if (errMsg) { toast(errMsg, 3600); emptyEl.style.display = log.length ? 'none' : ''; return; }
     if (!text) { toast(activeLang === ZH ? '\u6CA1\u542C\u6E05\uFF0C\u8BF7\u518D\u8BF4\u4E00\u6B21' : 'Didn\u2019t catch that. Hold and try again.'); emptyEl.style.display = log.length ? 'none' : ''; return; }
