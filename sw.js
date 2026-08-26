@@ -1,9 +1,9 @@
 // Babel service worker — cache v1
-const CACHE = 'babel-v2';
+const CACHE = 'babel-v3';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => fetch(u, { cache: 'reload' }).then((r) => c.put(u, r))))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -21,7 +21,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.mode === 'navigate') {
     // App shell: try the network first so updates arrive, fall back to cache offline.
     e.respondWith(
-      fetch(e.request).then((res) => {
+      fetch(e.request, { cache: 'no-cache' }).then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put('./index.html', copy));
         return res;
