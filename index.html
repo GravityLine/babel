@@ -90,9 +90,13 @@
     overflow-y: auto;
     padding: 6px 22px 24px;
     -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    overscroll-behavior: contain;
   }
+  main > article { flex: 0 0 auto; }
   .empty {
-    height: 100%;
+    flex: 1;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     text-align: center; gap: 14px;
@@ -427,7 +431,7 @@
   <button class="btn danger" id="clearLog">Clear the conversation</button>
   <button class="btn danger" id="forgetKey">Forget the API key</button>
   <p class="note">Listening and translating both need a connection. Nothing is stored anywhere except on this phone: the conversation and the key never leave it, apart from the text sent to Claude for translation.</p>
-  <p class="note" style="margin-top:10px">Babel version 6</p>
+  <p class="note" style="margin-top:10px">Babel version 7</p>
 </div>
 
 <div class="toast" id="toast"></div>
