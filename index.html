@@ -37,6 +37,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--ground);
@@ -137,6 +138,37 @@
   .live .orig:empty::before { content: "Listening"; color: var(--ink-soft); font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; }
   .live .orig.lang-zh:empty::before { content: "\6B63\5728\542C"; font-family: var(--zh); letter-spacing: 0.3em; }
   @keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+
+  /* ---------- tabs & write ---------- */
+  .tabs { display: flex; gap: 28px; padding: 0 22px 10px; }
+  .tab {
+    background: none; border: none; cursor: pointer; padding: 6px 0;
+    font-family: var(--sans); font-weight: 300; font-size: 11px;
+    letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--ink-soft); border-bottom: 1px solid transparent;
+  }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .write { flex: 1; overflow-y: auto; padding: 10px 22px 48px; -webkit-overflow-scrolling: touch; }
+  .field textarea {
+    width: 100%; background: transparent; color: var(--ink);
+    border: none; border-bottom: 1px solid var(--ink-faint);
+    padding: 8px 0; font-family: var(--sans); font-weight: 300; font-size: 16px;
+    border-radius: 0; resize: vertical; min-height: 44px;
+  }
+  .field textarea:focus { outline: none; border-bottom-color: var(--gold); }
+  .resulthead {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--gold); margin: 26px 0 10px;
+  }
+  .zhout { margin: 0; font-size: 23px; line-height: 1.55; }
+  .rowbtns { display: flex; align-items: center; gap: 14px; margin: 14px 0 18px; }
+  .rowbtns .btn { width: auto; margin: 0; padding: 11px 18px; }
+  .backout { margin: 0 0 6px; font-family: var(--serif); font-weight: 500; font-size: 17px; line-height: 1.5; color: var(--ink); }
+  .backout::before { content: "Says: "; font-family: var(--sans); font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-soft); }
+  .noteout { margin: 0 0 24px; font-size: 12.5px; line-height: 1.6; color: var(--gold); }
+  .noteout:empty { margin: 0 0 12px; }
 
   /* ---------- talk controls ---------- */
   footer {
@@ -257,6 +289,11 @@
   <button class="iconbtn" id="openSettings" aria-label="Settings">Settings</button>
 </header>
 
+<nav class="tabs">
+  <button class="tab active" id="tabTalk">Talk</button>
+  <button class="tab" id="tabWrite">Write</button>
+</nav>
+
 <main id="log">
   <div class="empty" id="empty">
     <div class="rule"></div>
@@ -265,7 +302,36 @@
   </div>
 </main>
 
-<footer>
+<section class="write" id="write" hidden>
+  <div class="field">
+    <label for="ctx">Context</label>
+    <textarea id="ctx" rows="2" placeholder="Who it’s for and how it should land"></textarea>
+    <div class="hint">e.g. “fiancée’s mum, runs a hedge fund — respectful, proper finance terms.” Kept for next time.</div>
+  </div>
+  <div class="field">
+    <label for="src">Your English</label>
+    <textarea id="src" rows="3" placeholder="What you want to say"></textarea>
+  </div>
+  <button class="btn" id="composeBtn">Translate</button>
+  <div id="result" hidden>
+    <div class="resulthead"><span>Chinese</span><span id="ver"></span></div>
+    <p class="zhout lang-zh" id="zhOut"></p>
+    <div class="rowbtns">
+      <button class="btn quiet" id="copyZh">Copy for WeChat</button>
+      <button class="replay" id="playZh" aria-label="Play">▶</button>
+    </div>
+    <p class="backout" id="backOut"></p>
+    <p class="noteout" id="noteOut"></p>
+    <div class="field">
+      <label for="fb">Feedback</label>
+      <textarea id="fb" rows="2" placeholder="e.g. too formal — warmer, and drop the last part"></textarea>
+    </div>
+    <button class="btn" id="reviseBtn">Revise</button>
+    <button class="btn danger" id="resetCompose">Start fresh</button>
+  </div>
+</section>
+
+<footer id="footer">
   <div class="talk">
     <button class="seal" id="holdEn" aria-label="Hold to speak English">EN</button>
     <div class="label">Hold to speak<b>English</b></div>
@@ -321,7 +387,7 @@
   <button class="btn danger" id="clearLog">Clear the conversation</button>
   <button class="btn danger" id="forgetKey">Forget the API key</button>
   <p class="note">Listening and translating both need a connection. Nothing is stored anywhere except on this phone: the conversation and the key never leave it, apart from the text sent to Claude for translation.</p>
-  <p class="note" style="margin-top:10px">Babel version 3</p>
+  <p class="note" style="margin-top:10px">Babel version 4</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -607,6 +673,118 @@
   $('forgetKey').addEventListener('click', function () {
     if (confirm('Forget the API key? You can paste it again later.')) { localStorage.removeItem(K.key); $('apiKey').value = ''; $('setupIntro').style.display = ''; toast('Key forgotten'); }
   });
+
+
+  // ---------- write tab ----------
+  var CK = 'babel:compose', TK = 'babel:tab';
+  var compose = { context: '', original: '', thread: [], zh: '', back: '', note: '', ver: 0 };
+  try { var c0 = JSON.parse(get(CK, 'null')); if (c0 && c0.thread) compose = c0; } catch (e) {}
+  function saveCompose() { set(CK, JSON.stringify(compose)); }
+
+  function setTab(which) {
+    var write = which === 'write';
+    document.getElementById('write').hidden = !write;
+    logEl.hidden = write;
+    document.getElementById('footer').hidden = write;
+    $('tabWrite').classList.toggle('active', write);
+    $('tabTalk').classList.toggle('active', !write);
+    set(TK, which);
+  }
+  $('tabTalk').addEventListener('click', function () { setTab('talk'); });
+  $('tabWrite').addEventListener('click', function () { setTab('write'); });
+
+  function apiCall(system, messages, ok, fail) {
+    var key = get(K.key, '');
+    if (!key) { openSettings(); return; }
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: get(K.model, 'claude-haiku-4-5-20251001'), max_tokens: 1000, system: system, messages: messages })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          var msg = (res.d && res.d.error && res.d.error.message) || ('Request failed (' + res.status + ')');
+          if (res.status === 401) msg = 'The API key was refused. Check it in Settings.';
+          throw new Error(msg);
+        }
+        var text = (res.d.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('').trim();
+        if (!text) throw new Error('Nothing came back. Try again.');
+        ok(text);
+      }).catch(function (err) {
+        fail(/Failed to fetch|NetworkError/i.test(err.message) ? 'No connection. Check the network and retry.' : err.message);
+      });
+  }
+
+  var COMPOSE_SYSTEM = 'You help an English speaker write messages in Simplified Chinese (Mandarin) to family in mainland China. '
+    + 'Do not translate literally: write what a native speaker with the same intent would actually send, culturally appropriate for the situation and relationship described in the context, with the right register and any terminology the context calls for. '
+    + 'When the user gives feedback, revise the previous Chinese accordingly and return the full revised message. '
+    + 'Respond with ONLY a JSON object, no markdown, no code fences: {"zh":"the Chinese message","back":"a faithful, plain English back-translation of what the Chinese actually says","note":"at most one short sentence on a wording or cultural choice worth knowing, or an empty string"}.';
+
+  function parseCompose(text) {
+    var t = text.replace(/```json|```/g, '').trim();
+    try { var o = JSON.parse(t); return { zh: o.zh || '', back: o.back || '', note: o.note || '' }; }
+    catch (e) { return { zh: t, back: '', note: '' }; }
+  }
+  function renderCompose() {
+    $('ctx').value = compose.context; $('src').value = compose.original;
+    var has = !!compose.zh;
+    $('result').hidden = !has;
+    if (has) {
+      $('zhOut').textContent = compose.zh;
+      $('backOut').textContent = compose.back;
+      $('noteOut').textContent = compose.note;
+      $('ver').textContent = compose.ver > 1 ? 'version ' + compose.ver : '';
+    }
+  }
+  function busy(btn, on, label) { btn.disabled = on; btn.textContent = on ? 'Thinking\u2026' : label; }
+
+  $('composeBtn').addEventListener('click', function () {
+    var src = $('src').value.trim();
+    if (!src) { toast('Type the English first.'); return; }
+    compose.context = $('ctx').value.trim(); compose.original = src;
+    compose.thread = [{ role: 'user', content: (compose.context ? 'Context: ' + compose.context + '\n\n' : '') + 'Message to translate: ' + src }];
+    var btn = $('composeBtn'); busy(btn, true, 'Translate');
+    apiCall(COMPOSE_SYSTEM, compose.thread, function (text) {
+      compose.thread.push({ role: 'assistant', content: text });
+      var o = parseCompose(text); compose.zh = o.zh; compose.back = o.back; compose.note = o.note; compose.ver = 1;
+      $('fb').value = ''; saveCompose(); renderCompose(); busy(btn, false, 'Translate');
+    }, function (err) { toast(err, 3600); busy(btn, false, 'Translate'); });
+  });
+
+  $('reviseBtn').addEventListener('click', function () {
+    var fb = $('fb').value.trim();
+    if (!fb) { toast('Say what to change first.'); return; }
+    compose.context = $('ctx').value.trim();
+    compose.thread.push({ role: 'user', content: 'Feedback: ' + fb + (compose.context ? '\n(Current context: ' + compose.context + ')' : '') });
+    var btn = $('reviseBtn'); busy(btn, true, 'Revise');
+    apiCall(COMPOSE_SYSTEM, compose.thread, function (text) {
+      compose.thread.push({ role: 'assistant', content: text });
+      var o = parseCompose(text); compose.zh = o.zh; compose.back = o.back; compose.note = o.note; compose.ver++;
+      $('fb').value = ''; saveCompose(); renderCompose(); busy(btn, false, 'Revise');
+    }, function (err) { toast(err, 3600); compose.thread.pop(); busy(btn, false, 'Revise'); });
+  });
+
+  $('resetCompose').addEventListener('click', function () {
+    compose.original = ''; compose.thread = []; compose.zh = ''; compose.back = ''; compose.note = ''; compose.ver = 0;
+    $('fb').value = ''; saveCompose(); renderCompose();
+  });
+
+  $('copyZh').addEventListener('click', function () {
+    var t = compose.zh; if (!t) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () { toast('Copied \u2014 paste it into WeChat'); }, function () { toast('Couldn\u2019t copy. Select it by hand.'); });
+    } else { toast('Couldn\u2019t copy. Select it by hand.'); }
+  });
+  $('playZh').addEventListener('click', function () { unlockSpeech(); speak(compose.zh, ZH); });
+
+  compose.context = compose.context || '';
+  renderCompose();
+  if (get(TK, 'talk') === 'write') setTab('write');
 
   // ---------- boot ----------
   renderAll();
