@@ -157,6 +157,15 @@
     border-radius: 0; resize: vertical; min-height: 44px;
   }
   .field textarea:focus { outline: none; border-bottom-color: var(--gold); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { display: inline-flex; align-items: center; border: 1px solid var(--gold-faint); }
+  .chip.on { border-color: var(--gold); }
+  .chip button {
+    background: none; border: none; cursor: pointer; color: var(--gold);
+    font-family: var(--sans); font-weight: 300; font-size: 11px; letter-spacing: 0.14em;
+    padding: 7px 4px 7px 12px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chip .x { padding: 7px 10px 7px 6px; color: var(--ink-soft); font-size: 12px; }
   .resulthead {
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase;
@@ -307,6 +316,7 @@
     <label for="ctx">Context</label>
     <textarea id="ctx" rows="2" placeholder="Who it’s for and how it should land"></textarea>
     <div class="hint">e.g. “fiancée’s mum, runs a hedge fund — respectful, proper finance terms.” Kept for next time.</div>
+    <div class="chips" id="ctxChips"></div>
   </div>
   <div class="field">
     <label for="src">Your English</label>
@@ -387,7 +397,7 @@
   <button class="btn danger" id="clearLog">Clear the conversation</button>
   <button class="btn danger" id="forgetKey">Forget the API key</button>
   <p class="note">Listening and translating both need a connection. Nothing is stored anywhere except on this phone: the conversation and the key never leave it, apart from the text sent to Claude for translation.</p>
-  <p class="note" style="margin-top:10px">Babel version 4</p>
+  <p class="note" style="margin-top:10px">Babel version 5</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -730,6 +740,29 @@
     try { var o = JSON.parse(t); return { zh: o.zh || '', back: o.back || '', note: o.note || '' }; }
     catch (e) { return { zh: t, back: '', note: '' }; }
   }
+  var CLK = 'babel:ctxlist';
+  var ctxList = [];
+  try { ctxList = JSON.parse(get(CLK, '[]')) || []; } catch (e) { ctxList = []; }
+  function saveCtxList() { set(CLK, JSON.stringify(ctxList.slice(0, 8))); }
+  function addCtx(c) {
+    if (!c) return;
+    ctxList = ctxList.filter(function (x) { return x !== c; });
+    ctxList.unshift(c); saveCtxList(); renderChips();
+  }
+  function renderChips() {
+    var box = $('ctxChips'); box.innerHTML = '';
+    var current = $('ctx').value.trim();
+    ctxList.forEach(function (c) {
+      var wrap = document.createElement('span'); wrap.className = 'chip' + (c === current ? ' on' : '');
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = c;
+      b.addEventListener('click', function () { $('ctx').value = c; compose.context = c; saveCompose(); renderChips(); });
+      var x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '\u00D7'; x.setAttribute('aria-label', 'Remove');
+      x.addEventListener('click', function () { ctxList = ctxList.filter(function (y) { return y !== c; }); saveCtxList(); renderChips(); });
+      wrap.appendChild(b); wrap.appendChild(x); box.appendChild(wrap);
+    });
+  }
+  $('ctx').addEventListener('input', function () { renderChips(); });
+
   function renderCompose() {
     $('ctx').value = compose.context; $('src').value = compose.original;
     var has = !!compose.zh;
@@ -746,7 +779,7 @@
   $('composeBtn').addEventListener('click', function () {
     var src = $('src').value.trim();
     if (!src) { toast('Type the English first.'); return; }
-    compose.context = $('ctx').value.trim(); compose.original = src;
+    compose.context = $('ctx').value.trim(); compose.original = src; addCtx(compose.context);
     compose.thread = [{ role: 'user', content: (compose.context ? 'Context: ' + compose.context + '\n\n' : '') + 'Message to translate: ' + src }];
     var btn = $('composeBtn'); busy(btn, true, 'Translate');
     apiCall(COMPOSE_SYSTEM, compose.thread, function (text) {
@@ -784,6 +817,7 @@
 
   compose.context = compose.context || '';
   renderCompose();
+  renderChips();
   if (get(TK, 'talk') === 'write') setTab('write');
 
   // ---------- boot ----------
